@@ -1,18 +1,24 @@
 name: Build macOS app
 
 # GatoFlow: el .app se compila en runners macOS (PyInstaller no compila cruzado).
-# Lanzamiento manual (Actions -> Run) sube los zips como artifacts; un tag mac-v*
-# (ej. mac-v1.0) ademas los adjunta al Release. Matriz arm64 (Apple Silicon) + x64
-# (Intel) con Python 3.11: icono .icns best-effort, bundle --onedir firmado ad-hoc
-# con texto de permiso de microfono, smoke test del binario windowed invocandolo
-# directo (vivo 20 s = OK), empaquetado con ditto (preserva el bundle) con chequeo
-# de tamano minimo, subida como artifact y adjunto al release solo en tags.
+# Se dispara al publicar un release (cualquier tag, ej. v1.1) y adjunta los zips
+# a ese mismo release; lanzamiento manual (Actions -> Run) solo sube artifacts
+# para probar. Los tags mac-v* (ej. mac-v1.0) tambien disparan y crean su propio
+# release. Matriz arm64 (Apple Silicon) + x64 (Intel) con Python 3.11: icono .icns
+# best-effort, bundle --onedir firmado ad-hoc con texto de permiso de microfono,
+# smoke test del binario windowed invocandolo directo (vivo 20 s = OK),
+# empaquetado con ditto (preserva el bundle) con chequeo de tamano minimo.
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
   push:
     tags:
       - "mac-v*"
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -93,7 +99,7 @@ jobs:
           path: dist/GatoFlow-macOS-${{ matrix.arch }}.zip
           if-no-files-found: error
 
-      - name: Attach to release (tag builds only)
+      - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:

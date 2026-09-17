@@ -1,0 +1,65 @@
+name: Build Windows exe
+
+# GatoFlow: compila GatoFlow.exe en un runner Windows (misma receta que
+# build_exe.ps1) y lo adjunta al release publicado, junto a los zips de macOS.
+# Se dispara al publicar un release (cualquier tag, ej. v1.1) o manualmente
+# (Actions -> Run, que solo sube el exe como artifact para probar).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Freeze exe with PyInstaller
+        run: |
+          pyinstaller --noconfirm --clean --noconsole --onefile `
+            --name GatoFlow `
+            --icon "assets/icon.ico" `
+            --collect-binaries cv2 `
+            --collect-all soundcard `
+            --add-data "assets;assets" `
+            main.py
+
+      - name: Smoke-test the frozen exe
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $app = Start-Process -FilePath "dist/GatoFlow.exe" -PassThru
+          Start-Sleep -Seconds 15
+          if (-not $app.HasExited) { echo "SMOKE OK (exe vivo 15 s)"; Stop-Process -InputObject $app -Force } else { echo "SMOKE FAIL (exit $($app.ExitCode))"; exit 1 }
+
+      - name: Check exe size
+        run: |
+          $sz = (Get-Item "dist/GatoFlow.exe").Length
+          echo "exe: $([math]::Round($sz / 1MB)) MB"
+          if ($sz -lt 20000000) { echo "exe sospechosamente chico" >&2; exit 1 }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GatoFlow-Windows
+          path: dist/GatoFlow.exe
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/GatoFlow.exe
