@@ -1,0 +1,5 @@
+PySide6>=6.6
+opencv-python>=4.8
+numpy>=1.26,<2  # <2: sus ruedas ARM exigen macOS 14+; con 1.26 el .app abre desde macOS 13
+soundcard>=0.4
+Pillow>=10

@@ -1,0 +1,17 @@
+# Artefactos de build
+build/
+dist/
+__pycache__/
+*.spec
+
+# Ejecutable (pesa >100 MB: GitHub lo rechaza; se distribuye por Releases)
+GatoFlow.exe
+
+# Icono macOS (se genera solo con build_mac.sh)
+assets/icon.icns
+
+# Logs de runtime (diagnostico local)
+*.log
+
+# Config de runtime (se crea sola con defaults junto al .exe / main.py)
+config.json
