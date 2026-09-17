@@ -46,8 +46,8 @@ sonido y auto-inicio. Tus ajustes se guardan solos en `%APPDATA%\GatoFlow`
 ## En Mac
 
 También hay versión para Mac (se compila desde este mismo código):
-descarga `GatoFlow-macOS-arm64.zip` desde **Releases**, descomprímelo y
-arrastra `GatoFlow.app` a Aplicaciones. Funciona igual que en Windows,
+descarga tu `.zip` (`-arm64` Apple Silicon o `-x64` Intel) desde **Releases**,
+descomprímelo y arrastra `GatoFlow.app` a Aplicaciones. Funciona igual que en Windows,
 con dos detalles:
 
 - El modo de velocidad **AUTO necesita [BlackHole](https://existential.audio/blackhole/)
@@ -67,20 +67,17 @@ pip install -r requirements.txt
 run.bat
 ```
 
-Para generar el `.exe` (Windows + Python 3.11):
+Para generar el `.exe` en local (Windows + Python 3.11):
 
 ```powershell
 .\build_exe.ps1
 ```
 
-Para generar la `.app` (**en un Mac** con Python 3.11):
+Para generar la `.app` en local (**en un Mac** con Python 3.11):
 
 ```bash
 bash build_mac.sh
 ```
-
-> Nota: el `.exe` no se sube al repositorio porque supera el límite de tamaño
-> de GitHub — se distribuye por **Releases**.
 
 Estructura:
 
@@ -89,7 +86,8 @@ GatoFlow/
 ├── main.py            # widget + pomodoro + velocidad
 ├── bpm.py             # ritmo del audio del sistema -> velocidad (solo acelera)
 ├── assets/            # video del gato (mp4), gif de referencia, iconos
+├── .github/workflows/ # builds automaticos del release (Windows + macOS)
 ├── requirements.txt
 ├── run.bat / build_exe.ps1 / build_mac.sh
-└── config.json        # solo corriendo desde codigo (el .exe usa %APPDATA%)
+└── config.json        # solo corriendo desde codigo (compilado: %APPDATA% o ~/Library/...)
 ```
