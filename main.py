@@ -26,9 +26,13 @@ sonido al cambiar de fase. El sonido suena en el hilo UI (MCI falla desde
 hilos secundarios); cada beep corta al anterior para que nunca se encimen, y
 el fallback bloqueante solo se usa si falta el mp3.
 
-VELOCIDAD: porcentaje manual o AUTO por ritmo desde bpm.py, suavizada y
-aplicada al intervalo de frames; en AUTO el aviso de "sin audio" sale una sola
-vez por cambio de ajustes y el hilo de captura se reintenta si muere.
+VELOCIDAD: porcentaje manual, o AUTO sincronizado al beat con bpm.py: el
+gato balancea el cuerpo y toca el extremo en los frames de VIDEO_HITS (uno cada
+~14.5 frames, ~103 BPM nativos). Con el tempo detectado se elige el multiplo
+(un golpe por beat si cabe entre el minimo y el tope; si no, dos por beat o uno
+cada dos) y un lazo de fase corrige la velocidad hasta un 30% para que el
+proximo golpe caiga sobre el proximo beat predicho. Sin lock el video vuelve
+suave a 1.0x; el aviso de "sin audio" sale una sola vez por cambio de ajustes.
 
 CONFIG: carpeta estandar de cada SO cuando va compilado (con migracion unica
 del sidecar viejo junto al binario), config.json junto a main.py desde codigo.
@@ -36,6 +40,7 @@ Posicion y tamano persisten al cerrar o redimensionar. Subir APP_VERSION (se ve
 en el titulo de ajustes) en cada build.
 """
 import json
+import math
 import os
 import shutil
 import sys
@@ -92,6 +97,10 @@ ASPECT = NATIVE_H / NATIVE_W
 MIN_W, MAX_W = 100, 480
 MAX_VIDEO_H = 316
 EDGE = 10
+VIDEO_HITS = (8, 22, 34, 49, 64, 79, 93, 110, 125, 139, 152, 167, 182, 197,
+              211, 226, 241, 254, 269, 283, 301, 314, 328, 344, 359, 371, 385)
+PHASE_GAIN = 1.5
+PHASE_MAX = 0.3
 
 DEFAULT_CONFIG = {
     "focus_min": 25,
@@ -103,6 +112,7 @@ DEFAULT_CONFIG = {
     "sound": True,
     "speed_auto": False,
     "manual_pct": 100,
+    "automin_pct": 70,
     "automax_pct": 200,
     "video_w": 260,
     "pos_x": None,
@@ -118,7 +128,7 @@ def load_config():
             print(f"[GatoFlow] config corrupta, uso defaults: {e}")
     for k in ("focus_min", "short_break_min", "long_break_min",
               "sessions_per_cycle", "total_pomodoros", "video_w",
-              "manual_pct", "automax_pct"):
+              "manual_pct", "automin_pct", "automax_pct"):
         try:
             cfg[k] = int(cfg.get(k, DEFAULT_CONFIG[k]))
         except Exception:
@@ -131,6 +141,7 @@ def load_config():
     cfg["video_w"] = max(MIN_W, min(MAX_W, cfg["video_w"]))
     cfg["speed_auto"] = bool(cfg.get("speed_auto", False))
     cfg["manual_pct"] = max(50, min(200, cfg["manual_pct"]))
+    cfg["automin_pct"] = max(50, min(100, cfg["automin_pct"]))
     cfg["automax_pct"] = max(100, min(250, cfg["automax_pct"]))
     return cfg
 
@@ -249,14 +260,16 @@ class SettingsDialog(QDialog):
         self.chk_sound = QCheckBox("Sonido al cambiar de fase"); self.chk_sound.setChecked(cfg.get("sound", True))
         self.chk_speed = QCheckBox("Velocidad AUTO (beta)")
         self.chk_speed.setChecked(cfg.get("speed_auto", False))
-        speed_desc = QLabel("Escucha el audio y aumenta o decrementa la velocidad del gato con el sonido.")
+        speed_desc = QLabel("Escucha lo que suena en el equipo, detecta el tempo y sincroniza el baile del gato con el beat.")
         speed_desc.setWordWrap(True)
         speed_desc.setStyleSheet("color:#71717a; font-size:11px;")
         self.spin_manual = QSpinBox(); self.spin_manual.setRange(50, 200); self.spin_manual.setValue(cfg.get("manual_pct", 100)); self.spin_manual.setSuffix(" %")
+        self.spin_min = QSpinBox(); self.spin_min.setRange(50, 100); self.spin_min.setValue(cfg.get("automin_pct", 70)); self.spin_min.setSuffix(" % mínimo")
         self.spin_max = QSpinBox(); self.spin_max.setRange(100, 250); self.spin_max.setValue(cfg.get("automax_pct", 200)); self.spin_max.setSuffix(" % tope")
         self.spin_manual.setEnabled(not self.chk_speed.isChecked())
+        self.spin_min.setEnabled(self.chk_speed.isChecked())
         self.spin_max.setEnabled(self.chk_speed.isChecked())
-        self.chk_speed.toggled.connect(lambda on: (self.spin_manual.setEnabled(not on), self.spin_max.setEnabled(on)))
+        self.chk_speed.toggled.connect(lambda on: (self.spin_manual.setEnabled(not on), self.spin_min.setEnabled(on), self.spin_max.setEnabled(on)))
 
         layout.addRow("Trabajo:", self.spin_focus)
         layout.addRow("Descanso corto:", self.spin_short)
@@ -268,6 +281,7 @@ class SettingsDialog(QDialog):
         layout.addRow(self.chk_speed)
         layout.addRow(speed_desc)
         layout.addRow("Velocidad manual:", self.spin_manual)
+        layout.addRow("Mínimo en AUTO:", self.spin_min)
         layout.addRow("Tope en AUTO:", self.spin_max)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -286,6 +300,7 @@ class SettingsDialog(QDialog):
             "sound": self.chk_sound.isChecked(),
             "speed_auto": self.chk_speed.isChecked(),
             "manual_pct": self.spin_manual.value(),
+            "automin_pct": self.spin_min.value(),
             "automax_pct": self.spin_max.value(),
         }
 
@@ -317,6 +332,12 @@ class GatoWidget(QWidget):
         self._retry_at = 0.0
         self._tracker_since = 0.0
         self._log_n = 0
+        self._frame_idx = 0
+        self._frame_wall = time.monotonic()
+        self._vid_fps = 25.0
+        self._native_bpm = 60.0 * 25.0 * (len(VIDEO_HITS) - 1) / (VIDEO_HITS[-1] - VIDEO_HITS[0])
+        self._sync_bpm = 0.0
+        self._sync_err = 0.0
         self._sfont = 11
         self._mx = 10
         self._btn = 30
@@ -561,7 +582,12 @@ class GatoWidget(QWidget):
     def _focus_text(self):
         total = self.cfg["total_pomodoros"]
         cur = self.current_pomodoro
-        pct = f" · {round(self.speed * 100)}%" if self.cfg.get("speed_auto") else ""
+        pct = ""
+        if self.cfg.get("speed_auto"):
+            if self._sync_bpm > 0:
+                pct = f" ♪{round(self._sync_bpm)}" if self.video_w < 160 else f" ♪{round(self._sync_bpm)} · {round(self.speed * 100)}%"
+            else:
+                pct = f" · {round(self.speed * 100)}%"
         if self.video_w < 160:
             return f"●{cur}/{total}{pct}"
         return f"● ENFOQUE {cur}/{total}{pct}"
@@ -737,6 +763,8 @@ class GatoWidget(QWidget):
         interval = max(1, int(round(1000.0 / fps)))
         self.base_interval = interval
         self._vid_fps = float(fps)
+        self._n_frames = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT)) or (VIDEO_HITS[-1] + 9)
+        self._native_bpm = 60.0 * self._vid_fps * (len(VIDEO_HITS) - 1) / (VIDEO_HITS[-1] - VIDEO_HITS[0])
         self.frame_tick = QTimer(self)
         self.frame_tick.setTimerType(Qt.PreciseTimer)
         self.frame_tick.setInterval(max(1, int(round(interval / self.speed))))
@@ -751,12 +779,16 @@ class GatoWidget(QWidget):
         self._vshown = 0
 
     def _show_one_frame(self):
+        idx = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
         ok, frame = self._cap.read()
         if not ok or frame is None:
             self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            idx = 0
             ok, frame = self._cap.read()
             if not ok or frame is None:
                 return False
+        self._frame_idx = idx
+        self._frame_wall = time.monotonic()
         h, w = frame.shape[:2]
         try:
             if _HAS_BGR888:
@@ -805,7 +837,7 @@ class GatoWidget(QWidget):
             screen = QApplication.primaryScreen().availableGeometry()
             self.move(screen.right() - self.width() - 30, screen.bottom() - self.height() - 60)
         self.speed_tick = QTimer(self)
-        self.speed_tick.setInterval(250)
+        self.speed_tick.setInterval(100)
         self.speed_tick.timeout.connect(self._speed_tick)
         self.speed_tick.start()
         self._apply_manual_speed()
@@ -823,8 +855,39 @@ class GatoWidget(QWidget):
 
     def _apply_manual_speed(self):
         self.speed = self.cfg.get("manual_pct", 100) / 100.0
+        self._sync_bpm = 0.0
         self._set_frame_interval()
         self._resync_vclock()
+
+    def _video_phase(self, now):
+        n = getattr(self, "_n_frames", VIDEO_HITS[-1] + 9)
+        f = self._frame_idx + max(0.0, min(1.5, (now - self._frame_wall) * self.speed * self._vid_fps))
+        hits = VIDEO_HITS
+        if f < hits[0]:
+            prev, nxt = hits[-1] - n, hits[0]
+        elif f >= hits[-1]:
+            prev, nxt = hits[-1], hits[0] + n
+        else:
+            i = max(j for j in range(len(hits)) if hits[j] <= f)
+            prev, nxt = hits[i], hits[i + 1]
+        return ((f - prev) / max(1, nxt - prev)) % 1.0
+
+    def _sync_target(self, st, now):
+        lo = self.cfg.get("automin_pct", 70) / 100.0
+        hi = self.cfg.get("automax_pct", 200) / 100.0
+        ratio = st["bpm"] / self._native_bpm
+        for mult in (1.0, 2.0, 0.5):
+            if lo <= ratio * mult <= hi:
+                break
+        else:
+            mult = 1.0
+        nominal = max(lo, min(hi, ratio * mult))
+        hit_period = st["period"] / mult
+        audio_phase = ((now - st["t0"]) / hit_period) % 1.0
+        err = ((audio_phase - self._video_phase(now) + 0.5) % 1.0) - 0.5
+        self._sync_err = err
+        corr = max(-PHASE_MAX, min(PHASE_MAX, PHASE_GAIN * err))
+        return nominal * (1.0 + corr)
 
     def _stop_tracker_sync(self, timeout=0.5):
         tr, self.tracker = self.tracker, None
@@ -843,7 +906,7 @@ class GatoWidget(QWidget):
             alive = self.tracker is not None and self.tracker.is_alive()
             if not alive:
                 self._stop_tracker_sync(timeout=0.2)
-                self.tracker = bpm.EnergyTracker()
+                self.tracker = bpm.BeatTracker()
                 self.tracker.start()
                 self._tracker_since = time.monotonic()
         else:
@@ -882,17 +945,13 @@ class GatoWidget(QWidget):
         except Exception:
             pass
 
-    def _log_audio(self):
-        if self.tracker is None:
-            return
+    def _log_audio(self, st):
         try:
-            d = self.tracker.get_diag()
-            e, lvl, ok, _ = self.tracker.get_state()
             self._append_log_file(
-                f"{datetime.now():%H:%M:%S} ok={int(ok)} "
-                f"lvl={lvl:.4f} rate={d.get('rate', 0)} bpm={d.get('bpm', 0)} "
-                f"conf={d.get('conf', 0)} e={e:.3f} spd={round(self.speed * 100)}% "
-                f"dev={str(d.get('device', ''))[:48]}")
+                f"{datetime.now():%H:%M:%S} ok={int(st['ok'])} lock={int(st['locked'])} "
+                f"lvl={st['level']:.4f} bpm={st['bpm']:.1f} conf={st['conf']:.2f} "
+                f"err={self._sync_err:+.2f} spd={round(self.speed * 100)}% "
+                f"dev={str(st.get('device', ''))[:48]} {st.get('error', '')[:60]}")
         except Exception:
             pass
 
@@ -905,30 +964,39 @@ class GatoWidget(QWidget):
             if now - self._retry_at > 15.0:
                 self._retry_at = now
                 self._ensure_tracker(True)
+        shown_bpm = 0.0
+        tau = 0.6
         if auto and self.tracker is not None:
-            e, _, ok, err = self.tracker.get_state()
-            if not ok:
-
-
+            st = self.tracker.get_state()
+            if not st["ok"]:
                 if not self._speed_warned and now - self._tracker_since > 5.0:
                     self._speed_warned = True
                     QMessageBox.warning(self, "GatoFlow",
-                        f"Velocidad AUTO sin audio del sistema:\n{err}\n\nEl video sigue a 1.0x.")
+                        f"Velocidad AUTO sin audio del sistema:\n{st['error']}\n\nEl video sigue a 1.0x.")
                 tgt = 1.0
+            elif st["locked"] and st["bpm"] > 0 and st["t0"] is not None and st["period"] > 0:
+                self._speed_warned = False
+                tgt = self._sync_target(st, now)
+                shown_bpm = st["bpm"]
+                tau = 0.15
             else:
                 self._speed_warned = False
-                tgt = bpm.energy_to_speed(e, self.cfg.get("automax_pct", 200) / 100.0)
+                tgt = 1.0
             self._log_n += 1
-            if self._log_n % 20 == 0:
-                self._log_audio()
+            if self._log_n % 50 == 0:
+                self._log_audio(st)
         elif auto:
             tgt = 1.0
         else:
             tgt = self.cfg.get("manual_pct", 100) / 100.0
-        new = bpm.smooth_speed(self.speed, tgt, dt)
-        if abs(new - self.speed) > 0.005:
+        k = 1.0 - math.exp(-max(1e-3, dt) / tau)
+        new = self.speed + (tgt - self.speed) * k
+        changed = abs(new - self.speed) > 0.005
+        if changed:
             self.speed = new
             self._set_frame_interval()
+        if (shown_bpm > 0) != (self._sync_bpm > 0) or abs(shown_bpm - self._sync_bpm) >= 0.5 or changed:
+            self._sync_bpm = shown_bpm
             if self.phase == "FOCUS":
                 self.status.setText(self._focus_text())
                 self._sync_status_vis()

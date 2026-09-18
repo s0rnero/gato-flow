@@ -39,9 +39,15 @@ sonido y auto-inicio. Tus ajustes se guardan solos en `%APPDATA%\GatoFlow`
 ## Velocidad del video
 
 - **Manual**: eliges un porcentaje fijo (50–200%).
-- **AUTO (beta)**: escucha lo que suena y sigue el tempo (rap lento,
-  techno rápido; nunca baja de 100%). El porcentaje se ve junto al
-  temporizador (ej. `· 150%`). Un solo aviso sonoro a la vez.
+- **AUTO (beta)**: escucha lo que suena en el equipo (no el micrófono),
+  detecta el tempo y sincroniza el baile con el beat: cada balanceo del
+  gato cae sobre un pulso de la música. Con música lenta va más lento y
+  con música rápida más rápido, siempre entre el **mínimo** (70% por
+  defecto) y el **tope** (200%) que elijas en ⚙; si el tempo no cabe en ese
+  rango baila a doble tiempo o a medio tiempo. Junto al temporizador se ve
+  el tempo detectado y la velocidad (ej. `♪128 · 124%`). Tarda unos 4–5
+  segundos en engancharse a una canción nueva, y sin pulso claro (silencio,
+  voz, ambient) vuelve suave al 100%. Un solo aviso sonoro a la vez.
 
 ## En Mac
 
