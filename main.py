@@ -579,18 +579,26 @@ class GatoWidget(QWidget):
         except Exception:
             pass
 
+    def _speed_text(self):
+        if not self.cfg.get("speed_auto"):
+            return ""
+        if self._sync_bpm > 0:
+            if self.video_w < 160:
+                return f"♪{round(self._sync_bpm)}"
+            return f"♪{round(self._sync_bpm)} · {round(self.speed * 100)}%"
+        return f"· {round(self.speed * 100)}%"
+
+    def _idle_text(self):
+        return self._speed_text() if self._sync_bpm > 0 else ""
+
     def _focus_text(self):
         total = self.cfg["total_pomodoros"]
         cur = self.current_pomodoro
-        pct = ""
-        if self.cfg.get("speed_auto"):
-            if self._sync_bpm > 0:
-                pct = f" ♪{round(self._sync_bpm)}" if self.video_w < 160 else f" ♪{round(self._sync_bpm)} · {round(self.speed * 100)}%"
-            else:
-                pct = f" · {round(self.speed * 100)}%"
+        extra = self._speed_text()
+        extra = f" {extra}" if extra else ""
         if self.video_w < 160:
-            return f"●{cur}/{total}{pct}"
-        return f"● ENFOQUE {cur}/{total}{pct}"
+            return f"●{cur}/{total}{extra}"
+        return f"● ENFOQUE {cur}/{total}{extra}"
 
     def _hit_zone(self, p):
         w, h = self.width(), self.height()
@@ -1000,6 +1008,9 @@ class GatoWidget(QWidget):
             if self.phase == "FOCUS":
                 self.status.setText(self._focus_text())
                 self._sync_status_vis()
+            elif self.phase == "IDLE":
+                self.status.setText(self._idle_text())
+                self._sync_status_vis()
 
 
     @staticmethod
@@ -1152,7 +1163,8 @@ class GatoWidget(QWidget):
             self._timer_color = "#4ADE80"
             self.btn_start.setText("↺")
         else:
-            self.status.setText("")
+            self.status.setText(self._idle_text())
+            self._status_color = "#7CFFB2"
             self._timer_color = "white"
             self.btn_start.setText("▶")
 
