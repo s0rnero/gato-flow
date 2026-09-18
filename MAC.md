@@ -36,14 +36,15 @@ Solo hay que hacerlo una vez.
 
 1. Pon música (Spotify, YouTube, lo que sea).
 2. En el gato: pasa el mouse por encima → **⚙** → activa
-   **"Velocidad AUTO por BPM"**.
-3. El texto junto al temporizador muestra la velocidad y los BPM
+   **"Velocidad AUTO (beta)"**.
+3. En unos 4–5 segundos el gato se engancha al beat y junto al temporizador
+   aparecen el tempo detectado y la velocidad (ej. `♪128 · 124%`).
 4. Prueba también: arrastrar, cambiar tamaño desde los bordes, pausar,
    saltar fase con ⏭, cerrar con ✕ y volver a abrir (solo permite una).
 
 ## Si algo falla
 
 - **No se oye música**: revisa el paso 1 (dispositivo de salida múltiple).
-- **AUTO no acelera**: confirma BlackHole + permiso de micrófono; el modo
-  manual siempre funciona.
+- **AUTO no sigue el ritmo**: confirma BlackHole + permiso de micrófono; el
+  modo manual siempre funciona.
 - **La app no abre**: repite el paso 3 (clic derecho → Abrir).
