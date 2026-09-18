@@ -201,7 +201,7 @@ def beep(ok=True):
 
 
 import cv2
-from PySide6.QtCore import Qt, QTimer, QEvent, QLockFile, QDir
+from PySide6.QtCore import Qt, QTimer, QEvent, QLockFile, QDir, QRect
 from PySide6.QtGui import QImage, QPixmap, QIcon, QRegion
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -797,9 +797,17 @@ class GatoWidget(QWidget):
         except Exception:
             pass
 
+    def _saved_pos_visible(self, x, y):
+        win = QRect(x, y, self.width(), self.height())
+        for scr in QApplication.screens():
+            vis = scr.availableGeometry().intersected(win)
+            if vis.width() >= 40 and vis.height() >= 40:
+                return True
+        return False
+
     def _place_window(self):
         x, y = self.cfg.get("pos_x"), self.cfg.get("pos_y")
-        if isinstance(x, int) and isinstance(y, int):
+        if isinstance(x, int) and isinstance(y, int) and self._saved_pos_visible(x, y):
             self.move(x, y)
         else:
             screen = QApplication.primaryScreen().availableGeometry()
